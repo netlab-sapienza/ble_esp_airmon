@@ -23,7 +23,8 @@ Now you're ready to run the code.
 
 ### Installing
 
-- Open the BLE_ESP32.ino file with Arduino IDE. 
+- git clone https://github.com/BE-Mesh/ble_esp_airmon.git
+- In the Arduino IDE go to `File->Open` and select the `BLE_ESP32.ino` file
 - Connect the ESP32 with a USB cable
 - Upload the file using the "Upload" button
 
