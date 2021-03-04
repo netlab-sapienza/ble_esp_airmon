@@ -19,7 +19,7 @@
 //The remote service we wish to connect to: it depends on what Federica uses
 #define serviceUUID BLEUUID((uint16_t)0x180D)         //Heart Rate Service 
 //The characteristic of the remote service we are interested in
-#define charUUID BLEUUID((uint16_t)0x2A39)            //Heart Rate Control point
+#define charUUID BLEUUID((uint16_t)0x2A39)            //Heart Rate Control Point
 
 typedef struct infoTuple {
   std::string relTime;
@@ -34,11 +34,13 @@ std::time_t t = std::time(NULL);
 std::tm *now = std::localtime(&t);
 std::time_t timer;
 struct timeval tv;
-bool deviceConnected = false;
+int deviceConnected = 0;          //Number of connected devices
 uint8_t data[13] = {0};           //Byte array used to set the flags into "Location and Speed" Characteristic
+uint8_t dataTime[10] = {0};       //Array for date and time values
 infoTuple globalTuple;            //Global tuple used to avoid wrong matches between written values
 infoTuple *infoTuples = NULL;     //Initialization of the head of list
 int nodesCounter = 0;             //Node counter before warning of memory full
+bool memoryFlag = false;          //Flag to reset the value of the characteristic to 1
 
 //Client variables
 static boolean doConnect = false;
@@ -55,7 +57,7 @@ void parser(std::string timeValue) {
 }
 
 void insertInfoTuple(infoTuple **head, infoTuple *newTuple) {
-  if (head == NULL){
+  if (head == NULL) {
     *head = newTuple;
     nodesCounter++;
     return;
@@ -104,38 +106,41 @@ BLECharacteristic* LatitudeCharacteristic;
 BLECharacteristic* LongitudeCharacteristic;
 BLECharacteristic* TimeCharacteristic;
 
-class ConnectionCallback: public BLEServerCallbacks {
+class ServerConnectionCallback: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
-      deviceConnected = true;
+      deviceConnected++;
+      BLEDevice::startAdvertising();
     };
 
     void onDisconnect(BLEServer* pServer) {
-      deviceConnected = false;
+      deviceConnected--;
+      pServer->startAdvertising();    //Restart advertising
     }
 };
+
+void makeTime(BLECharacteristic* TimeCharacteristic) {
+  std::time_t t = std::time(NULL);
+  now = std::localtime(&t);
+  dataTime[0] = (1900 + now->tm_year) & 0xff;
+  dataTime[1] = ((1900 + now->tm_year) >> 8) & 0xff;
+  dataTime[2] = now->tm_mon + 1;
+  dataTime[3] = now->tm_mday;
+  dataTime[4] = now->tm_hour;
+  dataTime[5] = now->tm_min;
+  dataTime[6] = now->tm_sec;
+  dataTime[7] = now->tm_wday;
+  dataTime[8] = (std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count() % 1000) * 256 / 1000;
+}
 
 class TimeCharacteristicCallbacks : public BLECharacteristicCallbacks {
   public: TimeCharacteristicCallbacks() {}
     virtual void onRead(BLECharacteristic* TimeCharacteristic) override {
-    std::time_t t = std::time(NULL);
-    now = std::localtime(&t);
-    uint8_t data[10] = {0};
-    data[0] = (1900 + now->tm_year) & 0xff;
-    data[1] = ((1900 + now->tm_year) >> 8) & 0xff;
-    data[2] = now->tm_mon + 1;
-    data[3] = now->tm_mday;
-    data[4] = now->tm_hour;
-    data[5] = now->tm_min;
-    data[6] = now->tm_sec;
-    data[7] = now->tm_wday;
-    data[8] = (std::chrono::duration_cast<std::chrono::milliseconds>(
-                  std::chrono::system_clock::now().time_since_epoch())
-                  .count() %
-              1000) *
-              256 / 1000;
-    TimeCharacteristic->setValue(data, sizeof(data));
+      makeTime((BLECharacteristic*)&TimeCharacteristic);
+      TimeCharacteristic->setValue(dataTime, sizeof(dataTime));
   }
-  virtual void onWrite(BLECharacteristic *TimeCharacteristic) override {
+  virtual void onWrite(BLECharacteristic* TimeCharacteristic) override {
     std::string value = TimeCharacteristic->getValue();
     parser(value);
     timer = mktime(now);
@@ -143,13 +148,15 @@ class TimeCharacteristicCallbacks : public BLECharacteristicCallbacks {
     tv.tv_usec = 0;
     settimeofday(&tv, NULL);
     globalTuple.relTime = value;
+    makeTime((BLECharacteristic*)&TimeCharacteristic);
+    TimeCharacteristic->setValue(dataTime, sizeof(dataTime));
     TimeCharacteristic->notify();
   }
 };
 
 class LatitudeCharacteristicCallbacks: public BLECharacteristicCallbacks {
   public: LatitudeCharacteristicCallbacks() {}
-    void onWrite(BLECharacteristic *LatitudeCharacteristic) override {
+    void onWrite(BLECharacteristic* LatitudeCharacteristic) override {
       std::string value = LatitudeCharacteristic->getValue();
       globalTuple.latitude = value;
       LatitudeCharacteristic->notify();
@@ -158,7 +165,7 @@ class LatitudeCharacteristicCallbacks: public BLECharacteristicCallbacks {
 
 class LongitudeCharacteristicCallbacks: public BLECharacteristicCallbacks {
   public: LongitudeCharacteristicCallbacks() {}
-    void onWrite(BLECharacteristic *LongitudeCharacteristic) override {
+    void onWrite(BLECharacteristic* LongitudeCharacteristic) override {
       std::string value = LongitudeCharacteristic->getValue();
       globalTuple.longitude = value;
       LongitudeCharacteristic->notify();
@@ -231,17 +238,17 @@ void setup() {
 
   //Create the BLE Server
   BLEServer* pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new ConnectionCallback());
+  pServer->setCallbacks(new ServerConnectionCallback());
 
   //Create the BLE Location Service
-  BLEService* pService = pServer->createService(LocationService);
-  pService->addCharacteristic(&LocationCharacteristic);
+  BLEService* locationService = pServer->createService(LocationService);
+  locationService->addCharacteristic(&LocationCharacteristic);
 
   //Create the BLE Time Service
-  BLEService* pService2 = pServer->createService(TimeService);
+  BLEService* timeService = pServer->createService(TimeService);
   
   //Create the BLE Time Characteristic
-  BLECharacteristic* TimeCharacteristic = pService2->createCharacteristic(
+  BLECharacteristic* TimeCharacteristic = timeService->createCharacteristic(
     Time_UUID, 
     BLECharacteristic::PROPERTY_READ |
     BLECharacteristic::PROPERTY_WRITE |
@@ -251,7 +258,7 @@ void setup() {
   TimeCharacteristic->setCallbacks(new TimeCharacteristicCallbacks());
 
   //Create the BLE Latitude Characteristic
-  BLECharacteristic* LatitudeCharacteristic = pService->createCharacteristic(
+  BLECharacteristic* LatitudeCharacteristic = locationService->createCharacteristic(
     Latitude_UUID,
     BLECharacteristic::PROPERTY_READ | 
     BLECharacteristic::PROPERTY_WRITE | 
@@ -260,7 +267,7 @@ void setup() {
   LatitudeCharacteristic->setCallbacks(new LatitudeCharacteristicCallbacks());
 
   //Create the BLE Longitude Characteristic
-  BLECharacteristic* LongitudeCharacteristic = pService->createCharacteristic(
+  BLECharacteristic* LongitudeCharacteristic = locationService->createCharacteristic(
     Longitude_UUID,
     BLECharacteristic::PROPERTY_READ | 
     BLECharacteristic::PROPERTY_WRITE | 
@@ -273,16 +280,17 @@ void setup() {
   LocationCharacteristic.setValue(data, sizeof(data));
   
   //Create a BLE Descriptor
+  LocationCharacteristic.addDescriptor(new BLE2902());              //Add notify descriptor for Location Characteristic
   LatitudeCharacteristic->addDescriptor(new BLE2902());             //Add notify descriptor for Latitude Characteristic
   LongitudeCharacteristic->addDescriptor(new BLE2902());            //Add notify descriptor for Longitude Characteristic
   TimeCharacteristic->addDescriptor(new BLE2902());                 //Add notify descriptor for Time Characteristic
   
   //Start the service
-  pService->start();
-  pService2->start();
+  locationService->start();
+  timeService->start();
 
   //Start advertising
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(LocationService);
   pAdvertising->addServiceUUID(TimeService);
   pAdvertising->setMinInterval(250 / 0.625f);
@@ -327,12 +335,25 @@ void loop() {
     }
   }
   //To debug the insertion use the code below
-  /*infoTuple **head = &infoTuples;
-  infoTuple *tmp = (infoTuple*) calloc(1, sizeof(infoTuple));
-  insertInfoTuple(&infoTuples, tmp);
-  nodesCounter++;
-  Serial.println(nodesCounter);*/
+  /*if (nodesCounter <= 256) {
+    /*infoTuple **head = &infoTuples;
+    infoTuple *tmp = (infoTuple*) calloc(1, sizeof(infoTuple));
+    insertInfoTuple(&infoTuples, tmp);
+    nodesCounter++;
+    Serial.println(nodesCounter);
+  }*/
 
+
+  if (nodesCounter == 256) {
+    LocationCharacteristic.setValue("ERROR: Memory Full");
+    LocationCharacteristic.notify();
+    memoryFlag=true;
+  } else if (nodesCounter <= 256 && memoryFlag == true) {
+    LocationCharacteristic.setValue(data, sizeof(data));
+    LocationCharacteristic.notify();
+    memoryFlag = false;
+  }
+  
   /*** CLIENT ***/
   if (doConnect) {
     if (connectToServer()) {
