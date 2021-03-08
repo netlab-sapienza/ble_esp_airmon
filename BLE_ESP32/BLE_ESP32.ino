@@ -16,7 +16,7 @@
 #define Latitude_UUID BLEUUID((uint16_t)0x2AAE)       //Latitude Characteristic
 #define Longitude_UUID BLEUUID((uint16_t)0x2AAF)      //Longitude Characteristic
 #define Time_UUID BLEUUID((uint16_t)0x2A2B)           //Current Time Characteristic
-//The remote service we wish to connect to: it depends on what Federica uses
+//The remote service we wish to connect to: it depends on what you want use
 #define serviceUUID BLEUUID((uint16_t)0x180D)         //Heart Rate Service 
 //The characteristic of the remote service we are interested in
 #define charUUID BLEUUID((uint16_t)0x2A39)            //Heart Rate Control Point
@@ -93,6 +93,7 @@ void resetGlobalTuple() {
   globalTuple.latitude = "";
   globalTuple.longitude = "";
   globalTuple.relTime = "";
+  Serial.println("Global values reset successfully");
   return;
 }
 
@@ -110,10 +111,14 @@ class ServerConnectionCallback: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
       deviceConnected++;
       BLEDevice::startAdvertising();
+      Serial.print("Client connected! Number of connected clients:");
+      Serial.println(deviceConnected);
     };
 
     void onDisconnect(BLEServer* pServer) {
       deviceConnected--;
+      Serial.print("Client disconnected! Number of connected clients:");
+      Serial.println(deviceConnected);
       pServer->startAdvertising();    //Restart advertising
     }
 };
@@ -150,6 +155,7 @@ class TimeCharacteristicCallbacks : public BLECharacteristicCallbacks {
     globalTuple.relTime = value;
     makeTime((BLECharacteristic*)&TimeCharacteristic);
     TimeCharacteristic->setValue(dataTime, sizeof(dataTime));
+    Serial.println("Time Characteristic received, notified value!");
     TimeCharacteristic->notify();
   }
 };
@@ -159,6 +165,7 @@ class LatitudeCharacteristicCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic* LatitudeCharacteristic) override {
       std::string value = LatitudeCharacteristic->getValue();
       globalTuple.latitude = value;
+      Serial.println("Latitude Characteristic received, notified value!");
       LatitudeCharacteristic->notify();
     }
 };
@@ -168,17 +175,20 @@ class LongitudeCharacteristicCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic* LongitudeCharacteristic) override {
       std::string value = LongitudeCharacteristic->getValue();
       globalTuple.longitude = value;
+      Serial.println("Longitude Characteristic received, notified value!");
       LongitudeCharacteristic->notify();
     }
 };
 
 /*** CLIENT FUNCTIONS ***/
+/* Uncomment this section to also enable the client on the ESP
+
 class ConnectionClientCallback : public BLEClientCallbacks {
   void onConnect(BLEClient* pClient) {
   }
   void onDisconnect(BLEClient* pClient) {
     connected = false;
-    Serial.println("onDisconnect");
+    Serial.println("A client has disconnected: onDisconnect.");
   }
 };
 
@@ -229,6 +239,7 @@ bool connectToServer() {
     Serial.println(" - Characteristic found");
     connected = true;
 }
+*/
 
 void setup() {
   Serial.begin(115200);
@@ -308,10 +319,10 @@ void setup() {
 }
 
 void loop() {
-  //TODO get air pollution data from LoRaWAN
+  //TODO get air pollution data from sensor
   /*** SERVER ***/
   if (deviceConnected) {
-    if (true) { //If the LoRaWAN module is connected
+    if (true) { //If the LoRaWAN module is connected and all data are available
       //TODO send values to LoRaWAN
       resetGlobalTuple();
       /*
@@ -331,7 +342,7 @@ void loop() {
       resetGlobalTuple();
     }
     else {
-      Serial.println("ERROR: Memory full (The list is full, sending data failed for 256 attempts)");
+      Serial.println("Limit of saved tuples exceeded.");
     }
   }
   //To debug the insertion use the code below
@@ -346,10 +357,12 @@ void loop() {
 
   if (nodesCounter == 256) {
     LocationCharacteristic.setValue("ERROR: Memory Full");
+    Serial.println("Location Characteristic error value notified!");
     LocationCharacteristic.notify();
     memoryFlag=true;
   } else if (nodesCounter <= 256 && memoryFlag == true) {
     LocationCharacteristic.setValue(data, sizeof(data));
+    Serial.println("Location flag resetted.");
     LocationCharacteristic.notify();
     memoryFlag = false;
   }
@@ -367,7 +380,7 @@ void loop() {
   if (connected) {
     if (nodesCounter == 256) {
       std::string memoryFullAdvertise = "ERROR: Memory Full";
-      Serial.println("ERROR: Memory full (The list is full, sending data failed for 256 attempts)");
+      Serial.println("ERROR: Memory full (The list is full, sending data failed for 256 attempts).");
       pRemoteCharacteristic->writeValue(memoryFullAdvertise.c_str(), memoryFullAdvertise.length());
     }
   } else if (doScan) {
