@@ -2,8 +2,9 @@
 
 ## Project description
 
-This project involves the connection between ESP32 module and Android phone which receives the following data:
-- GPS coordinates
+This project involves the connection between ESP32 and 1 or more Android phones that send the following data to ESP32:
+- Latitude
+- Longitude
 - Time
 
 ## Getting Started
@@ -28,6 +29,10 @@ Now you're ready to run the code.
 - Connect the ESP32 with a USB cable
 - Upload the file using the `Upload` button
 
+## Presentation
+You can find the presentation of the project [here](https://github.com/BE-Mesh/ble_esp_airmon/blob/main/Presentation/PresentationProjectBLE.ppt)
+
 ## Developers
 - [Alessio Amatucci](https://github.com/Alexius22)
+- [Federica Di Giacomo](https://github.com/Federicadgc)
 - [Alessandro Paniccià](https://github.com/Hoken-rgb)
