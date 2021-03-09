@@ -322,7 +322,8 @@ void loop() {
   //TODO get air pollution data from sensor
   /*** SERVER ***/
   if (deviceConnected) {
-    if (true) { //If the LoRaWAN module is connected and all data are available
+    if (globalTuple.latitude != "" && globalTuple.longitude != "" && globalTuple.relTime != "" 
+        && nodesCounter <= 256 /*&& the LoRaWAN module is connected*/) {
       //TODO send values to LoRaWAN
       resetGlobalTuple();
       /*
