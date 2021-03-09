@@ -41,6 +41,7 @@ infoTuple globalTuple;            //Global tuple used to avoid wrong matches bet
 infoTuple *infoTuples = NULL;     //Initialization of the head of list
 int nodesCounter = 0;             //Node counter before warning of memory full
 bool memoryFlag = false;          //Flag to reset the value of the characteristic to 1
+bool clientOn = false;            //Set this variable to true if you want to enable the client as well
 
 //Client variables
 static boolean doConnect = false;
@@ -99,7 +100,7 @@ void resetGlobalTuple() {
 
 BLECharacteristic LocationCharacteristic(
   Location_UUID,
-  BLECharacteristic::PROPERTY_READ | 
+  BLECharacteristic::PROPERTY_READ |
   BLECharacteristic::PROPERTY_NOTIFY
 );
 
@@ -135,8 +136,8 @@ void makeTime(BLECharacteristic* TimeCharacteristic) {
   dataTime[6] = now->tm_sec;
   dataTime[7] = now->tm_wday;
   dataTime[8] = (std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count() % 1000) * 256 / 1000;
+                   std::chrono::system_clock::now().time_since_epoch())
+                 .count() % 1000) * 256 / 1000;
 }
 
 class TimeCharacteristicCallbacks : public BLECharacteristicCallbacks {
@@ -144,20 +145,20 @@ class TimeCharacteristicCallbacks : public BLECharacteristicCallbacks {
     virtual void onRead(BLECharacteristic* TimeCharacteristic) override {
       makeTime((BLECharacteristic*)&TimeCharacteristic);
       TimeCharacteristic->setValue(dataTime, sizeof(dataTime));
-  }
-  virtual void onWrite(BLECharacteristic* TimeCharacteristic) override {
-    std::string value = TimeCharacteristic->getValue();
-    parser(value);
-    timer = mktime(now);
-    tv.tv_sec = timer;
-    tv.tv_usec = 0;
-    settimeofday(&tv, NULL);
-    globalTuple.relTime = value;
-    makeTime((BLECharacteristic*)&TimeCharacteristic);
-    TimeCharacteristic->setValue(dataTime, sizeof(dataTime));
-    Serial.println("Time Characteristic received, notified value!");
-    TimeCharacteristic->notify();
-  }
+    }
+    virtual void onWrite(BLECharacteristic* TimeCharacteristic) override {
+      std::string value = TimeCharacteristic->getValue();
+      parser(value);
+      timer = mktime(now);
+      tv.tv_sec = timer;
+      tv.tv_usec = 0;
+      settimeofday(&tv, NULL);
+      globalTuple.relTime = value;
+      makeTime((BLECharacteristic*)&TimeCharacteristic);
+      TimeCharacteristic->setValue(dataTime, sizeof(dataTime));
+      Serial.println("Time Characteristic received!");
+      //TimeCharacteristic->notify();           //Uncomment this line if you want to notify the value
+    }
 };
 
 class LatitudeCharacteristicCallbacks: public BLECharacteristicCallbacks {
@@ -165,8 +166,8 @@ class LatitudeCharacteristicCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic* LatitudeCharacteristic) override {
       std::string value = LatitudeCharacteristic->getValue();
       globalTuple.latitude = value;
-      Serial.println("Latitude Characteristic received, notified value!");
-      LatitudeCharacteristic->notify();
+      Serial.println("Latitude Characteristic received!");
+      //LatitudeCharacteristic->notify();      //Uncomment this line if you want to notify the value
     }
 };
 
@@ -175,71 +176,68 @@ class LongitudeCharacteristicCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic* LongitudeCharacteristic) override {
       std::string value = LongitudeCharacteristic->getValue();
       globalTuple.longitude = value;
-      Serial.println("Longitude Characteristic received, notified value!");
-      LongitudeCharacteristic->notify();
+      Serial.println("Longitude Characteristic received!");
+      //LongitudeCharacteristic->notify();      //Uncomment this line if you want to notify the value
     }
 };
 
 /*** CLIENT FUNCTIONS ***/
-/* Uncomment this section to also enable the client on the ESP
-
 class ConnectionClientCallback : public BLEClientCallbacks {
-  void onConnect(BLEClient* pClient) {
-  }
-  void onDisconnect(BLEClient* pClient) {
-    connected = false;
-    Serial.println("A client has disconnected: onDisconnect.");
-  }
+    void onConnect(BLEClient* pClient) {
+    }
+    void onDisconnect(BLEClient* pClient) {
+      connected = false;
+      Serial.println("A client has disconnected: onDisconnect.");
+    }
 };
 
 class CheckAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
-  void onResult(BLEAdvertisedDevice advertisedDevice) {
-    Serial.print("BLE Advertised Device found: ");
-    Serial.println(advertisedDevice.toString().c_str());
+    void onResult(BLEAdvertisedDevice advertisedDevice) {
+      Serial.print("BLE Advertised Device found: ");
+      Serial.println(advertisedDevice.toString().c_str());
 
-    if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(serviceUUID)) {
-      BLEDevice::getScan()->stop();
-      myDevice = new BLEAdvertisedDevice(advertisedDevice);
-      doConnect = true;
-      doScan = true;
+      if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(serviceUUID)) {
+        BLEDevice::getScan()->stop();
+        myDevice = new BLEAdvertisedDevice(advertisedDevice);
+        doConnect = true;
+        doScan = true;
+      }
     }
-  }
 };
 
 bool connectToServer() {
-    Serial.print("Forming a connection to ");
-    Serial.println(myDevice->getAddress().toString().c_str());
-    
-    BLEClient* pClient = BLEDevice::createClient();
-    Serial.println(" - Created client");
-    pClient->setClientCallbacks(new ConnectionClientCallback());
+  Serial.print("Forming a connection to ");
+  Serial.println(myDevice->getAddress().toString().c_str());
 
-    //Connect to the remote BLE Server
-    pClient->connect(myDevice);
-    Serial.println(" - Connected to server");
+  BLEClient* pClient = BLEDevice::createClient();
+  Serial.println(" - Created client");
+  pClient->setClientCallbacks(new ConnectionClientCallback());
 
-    //Obtain a reference to the service we are after in the remote BLE server
-    BLERemoteService *pRemoteService = pClient->getService(serviceUUID);
-    if (pRemoteService == nullptr) {
-      Serial.print("Failed to find service UUID: ");
-      Serial.println(serviceUUID.toString().c_str());
-      pClient->disconnect();
-      return false;
-    }
-    Serial.println(" - Service found");
+  //Connect to the remote BLE Server
+  pClient->connect(myDevice);
+  Serial.println(" - Connected to server");
 
-    //Obtain a reference to the characteristic in the service of the remote BLE server
-    pRemoteCharacteristic = pRemoteService->getCharacteristic(charUUID);
-    if (pRemoteCharacteristic == nullptr) {
-      Serial.print("Failed to find characteristic UUID: ");
-      Serial.println(charUUID.toString().c_str());
-      pClient->disconnect();
-      return false;
-    }
-    Serial.println(" - Characteristic found");
-    connected = true;
+  //Obtain a reference to the service we are after in the remote BLE server
+  BLERemoteService *pRemoteService = pClient->getService(serviceUUID);
+  if (pRemoteService == nullptr) {
+    Serial.print("Failed to find service UUID: ");
+    Serial.println(serviceUUID.toString().c_str());
+    pClient->disconnect();
+    return false;
+  }
+  Serial.println(" - Service found");
+
+  //Obtain a reference to the characteristic in the service of the remote BLE server
+  pRemoteCharacteristic = pRemoteService->getCharacteristic(charUUID);
+  if (pRemoteCharacteristic == nullptr) {
+    Serial.print("Failed to find characteristic UUID: ");
+    Serial.println(charUUID.toString().c_str());
+    pClient->disconnect();
+    return false;
+  }
+  Serial.println(" - Characteristic found");
+  connected = true;
 }
-*/
 
 void setup() {
   Serial.begin(115200);
@@ -257,45 +255,45 @@ void setup() {
 
   //Create the BLE Time Service
   BLEService* timeService = pServer->createService(TimeService);
-  
+
   //Create the BLE Time Characteristic
   BLECharacteristic* TimeCharacteristic = timeService->createCharacteristic(
-    Time_UUID, 
-    BLECharacteristic::PROPERTY_READ |
-    BLECharacteristic::PROPERTY_WRITE |
-    BLECharacteristic::PROPERTY_NOTIFY
-  );
+      Time_UUID,
+      BLECharacteristic::PROPERTY_READ |
+      BLECharacteristic::PROPERTY_WRITE |
+      BLECharacteristic::PROPERTY_NOTIFY
+                                          );
   TimeCharacteristic->setValue(data, 10);
   TimeCharacteristic->setCallbacks(new TimeCharacteristicCallbacks());
 
   //Create the BLE Latitude Characteristic
   BLECharacteristic* LatitudeCharacteristic = locationService->createCharacteristic(
-    Latitude_UUID,
-    BLECharacteristic::PROPERTY_READ | 
-    BLECharacteristic::PROPERTY_WRITE | 
-    BLECharacteristic::PROPERTY_NOTIFY
-  );
+        Latitude_UUID,
+        BLECharacteristic::PROPERTY_READ |
+        BLECharacteristic::PROPERTY_WRITE |
+        BLECharacteristic::PROPERTY_NOTIFY
+      );
   LatitudeCharacteristic->setCallbacks(new LatitudeCharacteristicCallbacks());
 
   //Create the BLE Longitude Characteristic
   BLECharacteristic* LongitudeCharacteristic = locationService->createCharacteristic(
-    Longitude_UUID,
-    BLECharacteristic::PROPERTY_READ | 
-    BLECharacteristic::PROPERTY_WRITE | 
-    BLECharacteristic::PROPERTY_NOTIFY
-  );
+        Longitude_UUID,
+        BLECharacteristic::PROPERTY_READ |
+        BLECharacteristic::PROPERTY_WRITE |
+        BLECharacteristic::PROPERTY_NOTIFY
+      );
   LongitudeCharacteristic->setCallbacks(new LongitudeCharacteristicCallbacks());
 
   //Set flag of "Location and Speed"
   data[2] = 1;
   LocationCharacteristic.setValue(data, sizeof(data));
-  
+
   //Create a BLE Descriptor
   LocationCharacteristic.addDescriptor(new BLE2902());              //Add notify descriptor for Location Characteristic
   LatitudeCharacteristic->addDescriptor(new BLE2902());             //Add notify descriptor for Latitude Characteristic
   LongitudeCharacteristic->addDescriptor(new BLE2902());            //Add notify descriptor for Longitude Characteristic
   TimeCharacteristic->addDescriptor(new BLE2902());                 //Add notify descriptor for Time Characteristic
-  
+
   //Start the service
   locationService->start();
   timeService->start();
@@ -310,81 +308,82 @@ void setup() {
   Serial.println("Waiting a client connection to notify...");
 
   //Specify that we want active scanning and start the scan to run for 5 seconds
-  BLEScan* pBLEScan = BLEDevice::getScan();
-  pBLEScan->setAdvertisedDeviceCallbacks(new CheckAdvertisedDeviceCallbacks());
-  pBLEScan->setInterval(1349);
-  pBLEScan->setWindow(449);
-  pBLEScan->setActiveScan(true);
-  pBLEScan->start(5, false);
+  if (clientOn) {
+    BLEScan* pBLEScan = BLEDevice::getScan();
+    pBLEScan->setAdvertisedDeviceCallbacks(new CheckAdvertisedDeviceCallbacks());
+    pBLEScan->setInterval(1349);
+    pBLEScan->setWindow(449);
+    pBLEScan->setActiveScan(true);
+    pBLEScan->start(5, false);
+  }
 }
 
 void loop() {
   //TODO get air pollution data from sensor
   /*** SERVER ***/
   if (deviceConnected) {
-    if (globalTuple.latitude != "" && globalTuple.longitude != "" && globalTuple.relTime != "" 
+    if (globalTuple.latitude != "" && globalTuple.longitude != "" && globalTuple.relTime != ""
         && nodesCounter <= 256 /*&& the LoRaWAN module is connected*/) {
       //TODO send values to LoRaWAN
       resetGlobalTuple();
       /*
-      * Check if there are nodes in the list and delete the nodes that have been sent
-      * TODO send values to LoRaWAN
-      * Get the time of the tuple sent and use it for delete the node
-      * deleteInfoTuple(&infoTuples, time);
+        Check if there are nodes in the list and delete the nodes that have been sent
+        TODO send values to LoRaWAN
+        Get the time of the tuple sent and use it for delete the node
+        deleteInfoTuple(&infoTuples, time);
       */
-    } 
+    }
     else if (globalTuple.latitude != "" && globalTuple.longitude != "" && globalTuple.relTime != "" && nodesCounter <= 256) {
       infoTuple **head = &infoTuples;
       infoTuple *tmp = (infoTuple*) calloc(1, sizeof(infoTuple));
-      tmp->latitude = globalTuple.latitude;      
+      tmp->latitude = globalTuple.latitude;
       tmp->longitude = globalTuple.longitude;
       tmp->relTime = globalTuple.relTime;
       insertInfoTuple(&infoTuples, tmp);
       resetGlobalTuple();
     }
-    else {
+    else if (nodesCounter <= 256 && memoryFlag == true) {
+      LocationCharacteristic.setValue(data, sizeof(data));
+      Serial.println("Location flag resetted.");
+      LocationCharacteristic.notify();
+      memoryFlag = false;
+    }
+    else if (nodesCounter >= 256) {
+      LocationCharacteristic.setValue("ERROR: Memory Full");
       Serial.println("ERROR: Memory full (The list is full, sending data failed for 256 attempts).");
+      Serial.println("Location Characteristic error value notified!");
+      LocationCharacteristic.notify();
+      memoryFlag = true;
     }
   }
   //To debug the insertion use the code below
-  /*if (nodesCounter <= 256) {
+  /*if (nodesCounter < 256) {
     /*infoTuple **head = &infoTuples;
     infoTuple *tmp = (infoTuple*) calloc(1, sizeof(infoTuple));
     insertInfoTuple(&infoTuples, tmp);
     Serial.println(nodesCounter);
-  }*/
+    }*/
 
-  if (nodesCounter == 256) {
-    LocationCharacteristic.setValue("ERROR: Memory Full");
-    Serial.println("Location Characteristic error value notified!");
-    LocationCharacteristic.notify();
-    memoryFlag=true;
-  } else if (nodesCounter <= 256 && memoryFlag == true) {
-    LocationCharacteristic.setValue(data, sizeof(data));
-    Serial.println("Location flag resetted.");
-    LocationCharacteristic.notify();
-    memoryFlag = false;
-  }
-  
   /*** CLIENT ***/
-  /* Uncomment this section to also enable the client on the ESP
-  if (doConnect) {
-    if (connectToServer()) {
-      Serial.println("Connected to the BLE Server.");
-    } else {
-      Serial.println("Failed to connect to the server.");
+  if (clientOn) {
+    if (doConnect) {
+      if (connectToServer()) {
+        Serial.println("Connected to the BLE Server.");
+      } else {
+        Serial.println("Failed to connect to the server.");
+      }
+      doConnect = false;
     }
-    doConnect = false;
-  }
 
-  if (connected) {
-    if (nodesCounter == 256) {
-      std::string memoryFullAdvertise = "ERROR: Memory Full";
-      Serial.println("ERROR: Memory full (The list is full, sending data failed for 256 attempts).");
-      pRemoteCharacteristic->writeValue(memoryFullAdvertise.c_str(), memoryFullAdvertise.length());
+    if (connected) {
+      if (nodesCounter == 256) {
+        std::string memoryFullAdvertise = "ERROR: Memory Full";
+        Serial.println("ERROR: Memory full (The list is full, sending data failed for 256 attempts).");
+        pRemoteCharacteristic->writeValue(memoryFullAdvertise.c_str(), memoryFullAdvertise.length());
+      }
+    } else if (doScan) {
+      BLEDevice::getScan()->start(0);
     }
-  } else if (doScan) {
-    BLEDevice::getScan()->start(0);
-  }*/
+  }
   delay(1000);
 }
