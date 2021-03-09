@@ -111,13 +111,13 @@ class ServerConnectionCallback: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
       deviceConnected++;
       BLEDevice::startAdvertising();
-      Serial.print("Client connected! Number of connected clients:");
+      Serial.print("Client connected! Number of connected clients: ");
       Serial.println(deviceConnected);
     };
 
     void onDisconnect(BLEServer* pServer) {
       deviceConnected--;
-      Serial.print("Client disconnected! Number of connected clients:");
+      Serial.print("Client disconnected! Number of connected clients: ");
       Serial.println(deviceConnected);
       pServer->startAdvertising();    //Restart advertising
     }
@@ -343,7 +343,7 @@ void loop() {
       resetGlobalTuple();
     }
     else {
-      Serial.println("Limit of saved tuples exceeded.");
+      Serial.println("ERROR: Memory full (The list is full, sending data failed for 256 attempts).");
     }
   }
   //To debug the insertion use the code below
@@ -351,10 +351,8 @@ void loop() {
     /*infoTuple **head = &infoTuples;
     infoTuple *tmp = (infoTuple*) calloc(1, sizeof(infoTuple));
     insertInfoTuple(&infoTuples, tmp);
-    nodesCounter++;
     Serial.println(nodesCounter);
   }*/
-
 
   if (nodesCounter == 256) {
     LocationCharacteristic.setValue("ERROR: Memory Full");
@@ -369,6 +367,7 @@ void loop() {
   }
   
   /*** CLIENT ***/
+  /* Uncomment this section to also enable the client on the ESP
   if (doConnect) {
     if (connectToServer()) {
       Serial.println("Connected to the BLE Server.");
@@ -386,6 +385,6 @@ void loop() {
     }
   } else if (doScan) {
     BLEDevice::getScan()->start(0);
-  }
+  }*/
   delay(1000);
 }
