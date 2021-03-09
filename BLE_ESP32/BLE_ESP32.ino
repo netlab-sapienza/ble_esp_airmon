@@ -333,7 +333,7 @@ void loop() {
         deleteInfoTuple(&infoTuples, time);
       */
     }
-    else if (globalTuple.latitude != "" && globalTuple.longitude != "" && globalTuple.relTime != "" && nodesCounter <= 256) {
+    else if (globalTuple.latitude != "" && globalTuple.longitude != "" && globalTuple.relTime != "" && nodesCounter < 256) {
       infoTuple **head = &infoTuples;
       infoTuple *tmp = (infoTuple*) calloc(1, sizeof(infoTuple));
       tmp->latitude = globalTuple.latitude;
@@ -342,13 +342,13 @@ void loop() {
       insertInfoTuple(&infoTuples, tmp);
       resetGlobalTuple();
     }
-    else if (nodesCounter <= 256 && memoryFlag == true) {
+    else if (nodesCounter < 256 && memoryFlag) {
       LocationCharacteristic.setValue(data, sizeof(data));
       Serial.println("Location flag resetted.");
-      LocationCharacteristic.notify();
       memoryFlag = false;
     }
-    else if (nodesCounter >= 256) {
+    else if (globalTuple.latitude == "" && globalTuple.longitude == "" && globalTuple.relTime == "" 
+            && nodesCounter >= 256 && memoryFlag) {
       LocationCharacteristic.setValue("ERROR: Memory Full");
       Serial.println("ERROR: Memory full (The list is full, sending data failed for 256 attempts).");
       Serial.println("Location Characteristic error value notified!");
@@ -357,12 +357,14 @@ void loop() {
     }
   }
   //To debug the insertion use the code below
-  /*if (nodesCounter < 256) {
+  /*
+  if (nodesCounter < 256) {
     /*infoTuple **head = &infoTuples;
     infoTuple *tmp = (infoTuple*) calloc(1, sizeof(infoTuple));
     insertInfoTuple(&infoTuples, tmp);
     Serial.println(nodesCounter);
-    }*/
+  }
+  */
 
   /*** CLIENT ***/
   if (clientOn) {
